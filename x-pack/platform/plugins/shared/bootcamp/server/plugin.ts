@@ -13,6 +13,8 @@ import type {
   BootcampServerPluginStartDeps,
   BootcampServerPluginSetupDeps,
 } from './types';
+import { registerRoutes } from './routes';
+import { dashboardSavedObjectType } from './saved_objects/dashboard_saved_object_type';
 
 export class BootcampPlugin {
   private readonly logger: Logger;
@@ -27,21 +29,12 @@ export class BootcampPlugin {
   ): BootcampServerSetup {
     this.logger.info('bootcamp: Setup');
 
-    // NOTE: Routes are registered during setup()
+    // Register the dashboard saved object type
+    core.savedObjects.registerType(dashboardSavedObjectType);
 
-    // NOTE: We can also use stuff available from start()
-    core.getStartServices().then(([coreStart, pluginsStart, startContract]) => {
-      // Automagic, gets executed after start()
-      this.logger.info('bootcamp: getStartServices');
-      startContract.logStart();
-    });
-
-    // NOTE: The `core` object has a lot of goodies available
-
-    // NOTE: This is how we use dependencies
-    // plugins.fieldsMetadata.getFields().then((fields) => {
-    //   this.logger.info('bootcamp: Fields', fields);
-    // });
+    // Register the routes
+    const router = core.http.createRouter();
+    registerRoutes(router, { logger: this.logger });
 
     return {
       logSetup: () => {

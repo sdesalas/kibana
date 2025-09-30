@@ -1,5 +1,7 @@
 # Fields Metadata Plugin
 
+
+
 The `@kbn/fields-metadata-plugin` is designed to provide a centralized and asynchronous way to consume field metadata across Kibana. This plugin addresses the need for on-demand retrieval of field metadata from static ECS/Metadata definitions and integration manifests, with the flexibility to extend to additional resolution sources in the future.
 
 ## Components and Mechanisms
@@ -36,7 +38,7 @@ const timestampField = await client.getByName('@timestamp')
 
 ```ts
 const fields = await client.find({
-  fieldNames: ['@timestamp', 'onepassword.client.platform_version'], 
+  fieldNames: ['@timestamp', 'onepassword.client.platform_version'],
   integration: '1password',
   dataset: '*'
 })
@@ -58,8 +60,8 @@ const fields = await client.find({
 
 > The service will try to extract the integration and dataset name as they are conventionally named in their static definition, providing a much simpler usage of this API for integration fields.
 
-> N.B. Passing the `dataset` name parameter to `.find` helps narrowing the scope of the integration assets that need to be fetched, increasing the performance of the request. 
-In case the exact dataset for a field is unknown, is it still possible to pass a `*` value as `dataset` parameter to access all the integration datasets' fields. 
+> N.B. Passing the `dataset` name parameter to `.find` helps narrowing the scope of the integration assets that need to be fetched, increasing the performance of the request.
+In case the exact dataset for a field is unknown, is it still possible to pass a `*` value as `dataset` parameter to access all the integration datasets' fields.
 Still, is recommended always passing the `dataset` as well if known or unless the required fields come from different datasets of the same integration.
 
 > N.B. In case the `fieldNames` parameter is not passed to `.find`, the result will give the whole list of ECS fields by default. This should be avoided as much as possible, although it helps covering cases where we might need the whole ECS fields list.
@@ -127,7 +129,7 @@ const FieldsComponent = () => {
     fieldsMetadata: { useFieldsMetadata },
   } = useServices(); // Or useKibana and any other utility to get the plugin deps
 
-  const { fieldsMetadata, error, loading } = useFieldsMetadata({ 
+  const { fieldsMetadata, error, loading } = useFieldsMetadata({
     fieldsName: ['@timestamp', 'agent.name'],
     attributes: ['name', 'type']
   }, []);

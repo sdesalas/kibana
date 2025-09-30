@@ -5,7 +5,7 @@
  * 2.0.
  */
 
-import type { CoreSetup } from '@kbn/core/server';
+import type { CoreSetup, Logger } from '@kbn/core/server';
 
 export type BootcampPluginCoreSetup = CoreSetup<BootcampServerPluginStartDeps, BootcampServerStart>;
 // export type BootcampPluginCoreServiceAccessor = CoreStart<BootcampPluginStartDeps>;
@@ -26,4 +26,7 @@ export interface BootcampServerPluginSetupDeps {
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface BootcampServerPluginStartDeps {
   // Add dependencies that the plugin start needs
+}
+export interface BootcampServerLibs {
+  logger: Logger;
 }
