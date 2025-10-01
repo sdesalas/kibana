@@ -6,13 +6,12 @@
  */
 
 import { schema } from '@kbn/config-schema';
-import type { IRouter } from '@kbn/core/server';
 import type { BootcampDashboardSavedObjectAttributes } from '../saved_objects/dashboard_saved_object_type';
 import { BOOTCAMP_DASHBOARD_SAVED_OBJECT_TYPE } from '../saved_objects/dashboard_saved_object_type';
 import type { BootcampServerLibs } from '../types';
 
-export const registerCreateDashboardRoute = (router: IRouter, libs: BootcampServerLibs) => {
-  router.post(
+export const registerCreateDashboardRoute = (libs: BootcampServerLibs) => {
+  libs.router.post(
     {
       path: '/internal/bootcamp/dashboards',
       validate: {
@@ -23,8 +22,7 @@ export const registerCreateDashboardRoute = (router: IRouter, libs: BootcampServ
       },
       security: {
         authz: {
-          enabled: false,
-          reason: 'This route is opted out from authorization',
+          requiredPrivileges: ['create_dashboards'],
         },
       },
     },
@@ -41,6 +39,12 @@ export const registerCreateDashboardRoute = (router: IRouter, libs: BootcampServ
         });
       } catch (error) {
         libs.logger.error(`Error creating dashboard: ${error}`);
+        if (error instanceof Error && error.name === 'MissingPrivilegesError') {
+          return response.customError({
+            body: 'Missing privileges',
+            statusCode: 500,
+          });
+        }
         return response.customError({
           body: error,
           statusCode: 500,

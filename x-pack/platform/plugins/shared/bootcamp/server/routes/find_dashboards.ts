@@ -6,13 +6,14 @@
  */
 
 import { schema } from '@kbn/config-schema';
-import type { IRouter, SavedObjectsFindResponse } from '@kbn/core/server';
+import type { SavedObjectsFindResponse } from '@kbn/core/server';
+import { BOOTCAMP_MAX_SEARCH_RESULTS_SETTING } from '@kbn/bootcamp-plugin/common/ui_settings';
 import type { BootcampDashboardSavedObjectAttributes } from '../saved_objects/dashboard_saved_object_type';
 import { BOOTCAMP_DASHBOARD_SAVED_OBJECT_TYPE } from '../saved_objects/dashboard_saved_object_type';
 import type { BootcampServerLibs } from '../types';
 
-export const registerFindDashboardRoute = (router: IRouter, libs: BootcampServerLibs) => {
-  router.get(
+export const registerFindDashboardRoute = (libs: BootcampServerLibs) => {
+  libs.router.get(
     {
       path: '/internal/bootcamp/dashboards',
       validate: {
@@ -25,8 +26,7 @@ export const registerFindDashboardRoute = (router: IRouter, libs: BootcampServer
       },
       security: {
         authz: {
-          enabled: false,
-          reason: 'This route is opted out from authorization',
+          requiredPrivileges: ['read_dashboards'],
         },
       },
     },
@@ -35,14 +35,19 @@ export const registerFindDashboardRoute = (router: IRouter, libs: BootcampServer
 
       let savedObjectsResponse;
 
-      try {
-        const { savedObjects } = await context.core;
+      const { savedObjects, uiSettings } = await context.core;
 
+      const perPage =
+        (await uiSettings.client.get(BOOTCAMP_MAX_SEARCH_RESULTS_SETTING)) ||
+        libs.config.dashboards.maxSearchResults;
+
+      try {
         savedObjectsResponse =
           await savedObjects.client.find<BootcampDashboardSavedObjectAttributes>({
             type: BOOTCAMP_DASHBOARD_SAVED_OBJECT_TYPE,
             search: search ? `*${search}*` : undefined,
             searchFields: ['description'],
+            perPage,
           });
 
         // dashboards = dashboards.saved_objects.find((dashboard) => {
@@ -60,6 +65,7 @@ export const registerFindDashboardRoute = (router: IRouter, libs: BootcampServer
       return response.ok({
         body: {
           search,
+          perPage,
           dashboards,
           savedObjectsResponse,
         },

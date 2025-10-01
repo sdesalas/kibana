@@ -50,9 +50,6 @@ export class FieldsMetadataPlugin
     // Register server side APIs
     initFieldsMetadataServer(this.libs);
 
-    // Here we can use dependency
-    // plugins.bootcamp.logSetup();
-
     return {
       registerIntegrationFieldsExtractor: fieldsMetadata.registerIntegrationFieldsExtractor,
       registerIntegrationListExtractor: fieldsMetadata.registerIntegrationListExtractor,

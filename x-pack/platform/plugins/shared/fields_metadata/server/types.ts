@@ -7,8 +7,6 @@
 
 import type { CoreSetup } from '@kbn/core/server';
 
-// import type { BootcampServerSetup } from '@kbn/bootcamp-plugin/server';
-
 import type {
   FieldsMetadataServiceSetup,
   FieldsMetadataServiceStart,
@@ -31,10 +29,7 @@ export interface FieldsMetadataServerStart {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface FieldsMetadataServerPluginSetupDeps {
-  // Here is where we can add dependencies that the plugin setup needs
-  // bootcamp: BootcampServerSetup;
-}
+export interface FieldsMetadataServerPluginSetupDeps {}
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface FieldsMetadataServerPluginStartDeps {}

@@ -5,7 +5,9 @@
  * 2.0.
  */
 
-import type { CoreSetup, Logger } from '@kbn/core/server';
+import type { CoreSetup, IRouter, Logger } from '@kbn/core/server';
+import type { FeaturesPluginSetup, FeaturesPluginStart } from '@kbn/features-plugin/server';
+import type { BootcampConfig } from './config';
 
 export type BootcampPluginCoreSetup = CoreSetup<BootcampServerPluginStartDeps, BootcampServerStart>;
 // export type BootcampPluginCoreServiceAccessor = CoreStart<BootcampPluginStartDeps>;
@@ -18,15 +20,17 @@ export interface BootcampServerStart {
   logStart: () => void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface BootcampServerPluginSetupDeps {
   // Add dependencies that the plugin setup needs
+  features?: FeaturesPluginSetup;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface BootcampServerPluginStartDeps {
   // Add dependencies that the plugin start needs
+  features?: FeaturesPluginStart;
 }
 export interface BootcampServerLibs {
   logger: Logger;
+  router: IRouter;
+  config: BootcampConfig;
 }

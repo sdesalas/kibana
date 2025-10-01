@@ -5,12 +5,11 @@
  * 2.0.
  */
 
-import type { IRouter } from '@kbn/core/server';
 import { registerFindDashboardRoute } from './find_dashboards';
 import { registerCreateDashboardRoute } from './create_dashboard';
 import type { BootcampServerLibs } from '../types';
 
-export const registerRoutes = (router: IRouter, libs: BootcampServerLibs) => {
-  registerFindDashboardRoute(router, libs);
-  registerCreateDashboardRoute(router, libs);
+export const registerRoutes = (libs: BootcampServerLibs) => {
+  registerFindDashboardRoute(libs);
+  registerCreateDashboardRoute(libs);
 };

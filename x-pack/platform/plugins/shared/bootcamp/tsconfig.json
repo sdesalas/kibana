@@ -12,6 +12,5 @@
   ],
   "exclude": ["target/**/*"],
   "kbn_references": [
-
   ]
 }

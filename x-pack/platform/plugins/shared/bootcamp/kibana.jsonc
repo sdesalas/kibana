@@ -9,6 +9,7 @@
     "id": "bootcamp",
     "server": true,
     "browser": false,
-    "requiredPlugins": []
+    "configPath": [ "xpack", "bootcamp" ],
+    "optionalPlugins": [ "features" ]
   }
 }

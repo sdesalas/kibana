@@ -7,9 +7,18 @@
 
 import type { PluginInitializerContext } from '@kbn/core/server';
 
-export type { BootcampServerSetup, BootcampServerStart } from './types';
+export type {
+  BootcampServerSetup,
+  BootcampServerStart,
+  BootcampServerPluginSetupDeps,
+  BootcampServerPluginStartDeps,
+  BootcampServerLibs,
+} from './types';
+
+export { config } from './config';
 
 export async function plugin(initializerContext: PluginInitializerContext) {
+  // Lazy load the plugin to improve startup time
   const { BootcampPlugin } = await import('./plugin');
   return new BootcampPlugin(initializerContext);
 }
