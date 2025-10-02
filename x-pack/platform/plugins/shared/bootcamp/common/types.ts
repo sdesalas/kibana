@@ -5,8 +5,7 @@
  * 2.0.
  */
 
-import { BootcampPlugin } from './plugin';
-
-export function plugin() {
-  return new BootcampPlugin();
+export interface BootcampDashboardItem {
+  title: string;
+  description: string;
 }

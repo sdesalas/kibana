@@ -5,178 +5,76 @@
  * 2.0.
  */
 
-// import { i18n } from '@kbn/i18n';
-import type { CoreSetup, CoreStart, Plugin, PluginInitializerContext } from '@kbn/core/public';
-// import type { ManagementAppMountParams, ManagementSetup } from '@kbn/management-plugin/public';
-// import type { SpacesPluginStart } from '@kbn/spaces-plugin/public';
-// import type { LicensingPluginStart } from '@kbn/licensing-plugin/public';
-// import type { DataPublicPluginStart } from '@kbn/data-plugin/public';
-// import type { UnifiedSearchPublicPluginStart } from '@kbn/unified-search-plugin/public';
-// import type { ServerlessPluginStart } from '@kbn/serverless/public';
+import type { Plugin } from '@kbn/core/public';
+import type { AppMountParameters } from '@kbn/core/public';
+import { DEFAULT_APP_CATEGORIES, type CoreSetup, type CoreStart } from '@kbn/core/public';
+import type {
+  BootcampPublicSetup,
+  BootcampPublicStart,
+  BootcampPublicPluginSetupDeps,
+  BootcampPublicPluginStartDeps,
+} from './types';
+import { BootcampDashboardService } from './services/bootcamp_dashboard_service';
+import { BootcampLocator } from '../common/locator';
 
-// import type { AlertNavigationHandler } from './alert_navigation_registry';
-// import { AlertNavigationRegistry } from './alert_navigation_registry';
-// import { loadRule, loadRuleType } from './services/rule_api';
-// import { MAINTENANCE_WINDOWS_APP_ID } from '../common';
-// import type { Rule } from '../common';
-
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface PluginSetupContract {
-  /**
-   * Register a customized view of the particular rule type. Stack Management provides a generic overview, but a developer can register a
-   * custom navigation to provide the user an extra link to a more curated view. The alerting plugin doesn't actually do
-   * anything with this information, but it can be used by other plugins via the `getNavigation` functionality. Currently
-   * the trigger_actions_ui plugin uses it to expose the link from the generic rule details view in Stack Management.
-   *
-   * @param applicationId The application id that the user should be navigated to, to view a particular rule in a custom way.
-   * @param ruleType The rule type that has been registered with Alerting.Server.PluginSetupContract.registerType. If
-   * no such rule with that id exists, a warning is output to the console log. It used to throw an error, but that was temporarily moved
-   * because it was causing flaky test failures with https://github.com/elastic/kibana/issues/59229 and needs to be
-   * investigated more.
-   * @param handler The navigation handler should return either a relative URL, or a state object. This information can be used,
-   * in conjunction with the consumer id, to navigate the user to a custom URL to view a rule's details.
-   * @throws an error if the given applicationId and ruleType combination has already been registered.
-   *
-   * @deprecated use "getViewInAppRelativeUrl" on the server side rule type instead.
-   */
-  // registerNavigation: (
-  //   applicationId: string,
-  //   ruleType: string,
-  //   handler: AlertNavigationHandler
-  // ) => void;
-  /**
-   * Register a customized view for all rule types with this application id. Stack Management provides a generic overview, but a developer can register a
-   * custom navigation to provide the user an extra link to a more curated view. The alerting plugin doesn't actually do
-   * anything with this information, but it can be used by other plugins via the `getNavigation` functionality. Currently
-   * the trigger_actions_ui plugin uses it to expose the link from the generic rule details view in Stack Management.
-   *
-   * @param applicationId The application id that the user should be navigated to, to view a particular rule in a custom way.
-   * @param handler The navigation handler should return either a relative URL, or a state object. This information can be used,
-   * in conjunction with the consumer id, to navigate the user to a custom URL to view a rule's details.
-   *
-   * @deprecated use "getViewInAppRelativeUrl" on the server side rule type instead.
-   */
-  // registerDefaultNavigation: (applicationId: string, handler: AlertNavigationHandler) => void;
-}
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface PluginStartContract {
-  // getNavigation: (ruleId: Rule['id']) => Promise<string | undefined>;
-  // getMaxAlertsPerRun: () => number;
-}
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface AlertingPluginSetup {
-  // management: ManagementSetup;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface AlertingPluginStart {
-  // licensing: LicensingPluginStart;
-  // spaces: SpacesPluginStart;
-  // unifiedSearch: UnifiedSearchPublicPluginStart;
-  // data: DataPublicPluginStart;
-  // serverless?: ServerlessPluginStart;
-}
-
-export interface AlertingUIConfig {
-  rules: {
-    run: {
-      alerts: {
-        max: number;
-      };
-    };
-  };
-  maintenanceWindow: { enabled: boolean };
-}
-
-export class AlertingPublicPlugin
+export class BootcampPlugin
   implements
-    Plugin<PluginSetupContract, PluginStartContract, AlertingPluginSetup, AlertingPluginStart>
+    Plugin<
+      BootcampPublicSetup,
+      BootcampPublicStart,
+      BootcampPublicPluginSetupDeps,
+      BootcampPublicPluginStartDeps
+    >
 {
-  // private alertNavigationRegistry?: AlertNavigationRegistry;
-  private config: AlertingUIConfig;
-  readonly maxAlertsPerRun: number;
+  public setup(
+    coreSetup: CoreSetup<BootcampPublicPluginStartDeps, BootcampPublicStart>,
+    plugins: BootcampPublicPluginSetupDeps
+  ): BootcampPublicSetup {
+    // eslint-disable-next-line no-console
+    console.log('BootcampPlugin.setup()');
 
-  constructor(private readonly initContext: PluginInitializerContext) {
-    this.config = this.initContext.config.get<AlertingUIConfig>();
-    this.maxAlertsPerRun = this.config.rules.run.alerts.max;
-  }
+    plugins.share.url.locators.create(new BootcampLocator());
 
-  public setup(core: CoreSetup, plugins: AlertingPluginSetup): PluginSetupContract {
-    // this.alertNavigationRegistry = new AlertNavigationRegistry();
+    coreSetup.application.register({
+      id: 'bootcamp',
+      title: 'Bootcamp',
+      category: DEFAULT_APP_CATEGORIES.security,
+      appRoute: '/app/bootcamp',
+      visibleIn: ['sideNav', 'globalSearch', 'home'],
+      euiIconType: 'devToolsApp', // @see https://eui.elastic.co/docs/components/display/icons/#elastic-logos
+      async mount(params: AppMountParameters) {
+        // eslint-disable-next-line no-console
+        console.log('BootcampPlugin.mount()');
 
-    const kibanaVersion = this.initContext.env.packageInfo.version;
+        const { renderApp } = await import('./application');
+        const [coreStart, pluginsStart, myServices] = await coreSetup.getStartServices();
 
-    // const registerNavigation = async (
-    //   applicationId: string,
-    //   ruleTypeId: string,
-    //   handler: AlertNavigationHandler
-    // ) => {
-    //   this.alertNavigationRegistry!.register(applicationId, ruleTypeId, handler);
-    // };
+        // eslint-disable-next-line no-console
+        console.log('BootcampPlugin.mount() -> ready', { coreStart, pluginsStart, myServices });
 
-    // const registerDefaultNavigation = async (
-    //   applicationId: string,
-    //   handler: AlertNavigationHandler
-    // ) => this.alertNavigationRegistry!.registerDefault(applicationId, handler);
-
-    // if (this.config.maintenanceWindow?.enabled) {
-    //   plugins.management.sections.section.insightsAndAlerting.registerApp({
-    //     id: MAINTENANCE_WINDOWS_APP_ID,
-    //     title: i18n.translate('xpack.alerting.management.section.title', {
-    //       defaultMessage: 'Maintenance Windows',
-    //     }),
-    //     async mount(params: ManagementAppMountParams) {
-    //       const { renderApp } = await import('./application/maintenance_windows');
-
-    //       const [coreStart, pluginsStart] = (await core.getStartServices()) as [
-    //         CoreStart,
-    //         AlertingPluginStart,
-    //         unknown
-    //       ];
-
-    //       return renderApp({
-    //         core: coreStart,
-    //         plugins: pluginsStart,
-    //         mountParams: params,
-    //         kibanaVersion,
-    //       });
-    //     },
-    //   });
-    // }
+        // Return cleanup function
+        // (what happens when the app is unmounted)
+        // renderApp() returns it so we just pass it through
+        return renderApp(coreStart, pluginsStart, myServices, params);
+      },
+    });
 
     return {
-      // registerNavigation,
-      // registerDefaultNavigation,
+      // eslint-disable-next-line no-console
+      logSetup: () => console.log('BootcampPlugin.logSetup()'),
     };
   }
 
-  public start(core: CoreStart) {
+  public start(coreStart: CoreStart, plugins: BootcampPublicPluginStartDeps): BootcampPublicStart {
+    // eslint-disable-next-line no-console
+    console.log('BootcampPlugin.start()');
+
+    const dashboardService = new BootcampDashboardService(coreStart.http);
+
     return {
-      // getNavigation: async (ruleId: Rule['id']) => {
-      //   const rule = await loadRule({ http: core.http, ruleId });
-      //   const ruleType = await loadRuleType({ http: core.http, id: rule.alertTypeId });
-      //
-      //   if (!ruleType) {
-      //     // eslint-disable-next-line no-console
-      //     console.log(
-      //       `Unable to get navigation for rule type "${rule.alertTypeId}" because it is not registered on the server side.`
-      //     );
-      //     return;
-      //   }
-      //
-      //   if (this.alertNavigationRegistry!.has(rule.consumer, ruleType)) {
-      //     const navigationHandler = this.alertNavigationRegistry!.get(rule.consumer, ruleType);
-      //     const navUrl = navigationHandler(rule);
-      //     if (navUrl) return navUrl;
-      //   }
-      //
-      //   if (rule.viewInAppRelativeUrl) {
-      //     return rule.viewInAppRelativeUrl;
-      //   }
-      // },
-      // getMaxAlertsPerRun: () => {
-      //   return this.maxAlertsPerRun;
-      // },
+      // eslint-disable-next-line no-console
+      logStart: () => console.log('BootcampPlugin.logStart()'),
+      dashboardService,
     };
   }
 }
