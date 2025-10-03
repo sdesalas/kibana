@@ -9,6 +9,8 @@ import { expect } from '@kbn/scout';
 import { test } from '../../../fixtures';
 import { generateLogsData } from '../../../fixtures/generators';
 
+// here are some sample scout tests
+
 test.describe('Stream data processing - creating steps', { tag: ['@ess', '@svlOblt'] }, () => {
   test.beforeAll(async ({ apiServices, logsSynthtraceEsClient }) => {
     await apiServices.streams.enable();
