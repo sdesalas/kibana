@@ -126,6 +126,9 @@ export const createSecurityRuleTypeWrapper: CreateSecurityRuleTypeWrapper =
 
     return persistenceRuleType({
       ...type,
+      // a change here will apply across all rule types that are specific to security,
+      // bypassing observability and other types of rules
+      changeTracking: true, // <-- here
       cancelAlertsOnRuleTimeout: false,
       useSavedObjectReferences: {
         extractReferences: (params) => extractReferences({ logger, params }),
