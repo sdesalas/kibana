@@ -111,7 +111,7 @@ export class DataStreamsService implements CoreService<DataStreamsSetup, DataStr
       );
     } else {
       this.logger.debug('Initializing all data streams');
-      await this.initializeAllDataStreams(elasticsearchClient);
+      await this.initializeAllDataStreams(elasticsearchClient); // <-- here we assign the privileged client
     }
 
     return {
@@ -127,7 +127,7 @@ export class DataStreamsService implements CoreService<DataStreamsSetup, DataStr
         }
 
         // initialize the data stream if it is not already initialized, disable lazy creation
-        await this.initializeDataStream(dataStreamName, elasticsearchClient, false);
+        await this.initializeDataStream(dataStreamName, elasticsearchClient, false); // <-- client initialization happens here
 
         const dataStreamClient = this.dataStreamClients.get(dataStreamName);
         if (!dataStreamClient) {

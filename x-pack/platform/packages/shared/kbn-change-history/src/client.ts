@@ -12,9 +12,11 @@ import type {
   SortCombinations,
 } from '@elastic/elasticsearch/lib/api/types';
 import type { ElasticsearchClient } from '@kbn/core/server';
-import { type DataStreamDefinition, DataStreamClient } from '@kbn/data-streams';
+import type { DataStreamClient } from '@kbn/data-streams';
+import { type DataStreamDefinition } from '@kbn/data-streams';
 import type { ClientCreateRequest } from '@kbn/data-streams/src/types/es_api';
 import type { Logger } from '@kbn/logging';
+import type { DataStreamsSetup, DataStreamsStart } from '@kbn/core-data-streams-server';
 import { changeHistoryMappings } from './mappings';
 import type {
   ChangeHistoryDocument,
@@ -37,7 +39,8 @@ type ChangeHistoryDataStreamClient = DataStreamClient<
 export interface IChangeHistoryClient {
   dataStreamName: string;
   isInitialized(): boolean;
-  initialize(elasticsearchClient: ElasticsearchClient): void;
+  register(dataStreamSetup: DataStreamsSetup): void;
+  initialize(es: ElasticsearchClient, dataStreamStart: DataStreamsStart): void;
   log(change: ObjectChange, opts: LogChangeHistoryOptions): Promise<void>;
   logBulk(changes: ObjectChange[], opts: LogChangeHistoryOptions): Promise<void>;
   getHistory(
@@ -84,34 +87,40 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
   }
 
   /**
-   * Initialize the change tracking service.
-   * @param elasticsearchClient - The Elasticsearch client.
-   * @returns A promise that resolves when the change tracking service is initialized.
-   * @throws An error if the data stream is not initialized properly.
+   * Register the service during plugin `setup()` phase using
+   * the core service.
+   * @param dataStreamSetup The core data streams service `core.dataStreams`
    */
-  async initialize(elasticsearchClient: ElasticsearchClient) {
-    // Step 1: Create data stream definition
-    // TODO: What about ILM policy (defaults to none = keep forever)
-    const mappings = { ...changeHistoryMappings };
+  register(dataStreamSetup: DataStreamsSetup) {
     const now = new Date();
-    const dataStream: DataStreamDefinition<typeof mappings> = {
+    const definition: DataStreamDefinition<typeof changeHistoryMappings> = {
       name: this.dataStreamName,
       version: 1,
       hidden: true,
       template: {
         _meta: { changeHistoryStartDate: now.toISOString() },
         priority: 100,
-        mappings,
+        mappings: changeHistoryMappings,
       },
     };
+    // Step 1: Create data stream definition
+    // TODO: What about ILM policy (defaults to none = keep forever)
+    dataStreamSetup.registerDataStream(definition);
+  }
 
+  /**
+   * Initialize the change tracking service during plugin `start()` phase.
+   * @param elasticsearchClient - The privileged elasticsearch client `core.elasticsearch.client.asInternalUser`.
+   * @param dataStreamStart - The core datastreams service `core.dataStreams`
+   * @returns A promise that resolves when the change tracking service is initialized.
+   * @throws An error if the data stream is not initialized properly.
+   */
+  async initialize(elasticsearchClient: ElasticsearchClient, dataStreamStart: DataStreamsStart) {
     // Step 2: Initialize data stream
-    const client = (await DataStreamClient.initialize({
-      dataStream,
-      elasticsearchClient,
-      logger: this.logger,
-      lazyCreation: false,
-    })) as ChangeHistoryDataStreamClient;
+    const client = (await dataStreamStart.initializeClient<
+      typeof changeHistoryMappings,
+      ChangeHistoryDocument
+    >(this.dataStreamName)) as ChangeHistoryDataStreamClient;
 
     if (!client) {
       const err = new Error(`Data stream not initialized: [${this.dataStreamName}]`);

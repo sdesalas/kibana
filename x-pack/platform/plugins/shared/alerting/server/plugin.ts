@@ -561,7 +561,7 @@ export class AlertingPlugin {
           // plugin start() phase (once esClient.asInternalUser becomes available).
           if (ruleType.trackChanges) {
             const module = ruleType.solution;
-            this.changeTrackingService.register(module);
+            this.changeTrackingService.register(module, core.dataStreams); // <-- here we need to pass an extra "thing"
           }
 
           ruleTypeRegistry.register(ruleType);
@@ -645,7 +645,7 @@ export class AlertingPlugin {
     // the priviledged elasticsearch client (one data stream per business domain)
     // In reality, only security rules have "opted-in" to change tracking
     // via a feature flag so only this data stream will get created.
-    changeTrackingService.initialize(core.elasticsearch.client.asInternalUser);
+    changeTrackingService.initialize(core.elasticsearch.client.asInternalUser, core.dataStreams); // <-- here we still need to pass the privileged esClient in addition to the extra "thing"
     rulesClientFactory.initialize({
       ruleTypeRegistry: ruleTypeRegistry!,
       logger,

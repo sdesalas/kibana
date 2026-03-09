@@ -43,9 +43,11 @@ interface DataStreamDocument extends GetFieldsOf<typeof dataStreamMappings> {
 export const plugin = (ctx: PluginInitializerContext) => {
   return {
     setup({ dataStreams }: CoreSetup) {
+      // here
       dataStreams.registerDataStream(dataStream);
     },
     start({ dataStreams }: CoreStart) {
+      // here
       const initializeClient = async () => {
         return await dataStreams.initializeClient<typeof dataStreamMappings, DataStreamDocument>(
           dataStream.name

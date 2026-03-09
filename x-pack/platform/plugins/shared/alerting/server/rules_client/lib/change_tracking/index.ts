@@ -18,6 +18,7 @@ import type {
 } from '@kbn/change-history';
 import type { SavedObjectReference } from '@kbn/core/server';
 import { ChangeHistoryClient } from '@kbn/change-history';
+import type { DataStreamsSetup, DataStreamsStart } from '@kbn/core-data-streams-server';
 import type { RawRule } from '../../../types';
 import { RULE_SAVED_OBJECT_TYPE } from '../../..';
 
@@ -55,9 +56,9 @@ export interface GetRuleHistoryResult extends GetHistoryResult {
 }
 
 export interface IChangeTrackingService {
-  register(module: RuleTypeSolution): void;
+  register(module: RuleTypeSolution, dataStreamSetup: DataStreamsSetup): void;
   initialized(module: RuleTypeSolution): void;
-  initialize(elasticsearchClient: ElasticsearchClient): void;
+  initialize(es: ElasticsearchClient, dataStreamStart: DataStreamsStart): void;
   log(change: RuleChange, opts: LogChangeHistoryOptions): void;
   logBulk(changes: RuleChange[], opts: LogChangeHistoryOptions): void;
   getHistory(
@@ -81,9 +82,14 @@ export class ChangeTrackingService implements IChangeTrackingService {
     this.modules = [];
   }
 
-  register(module: RuleTypeSolution) {
+  register(module: RuleTypeSolution, dataStreamSetup: DataStreamsSetup) {
     if (!this.modules.includes(module)) {
       this.modules.push(module);
+      if (dataStreamSetup) {
+        const { dataset, logger, kibanaVersion } = this;
+        const client = new ChangeHistoryClient({ module, dataset, logger, kibanaVersion });
+        client.register(dataStreamSetup);
+      }
     }
   }
 
@@ -91,7 +97,7 @@ export class ChangeTrackingService implements IChangeTrackingService {
     return !!this.clients[module]?.isInitialized();
   }
 
-  async initialize(elasticsearchClient: ElasticsearchClient) {
+  async initialize(es: ElasticsearchClient, dataStreamStart: DataStreamsStart) {
     this.logger.warn(`ChangeTrackingService.initialize(esClient)`);
     const { dataset, logger, kibanaVersion } = this;
     for (const module of this.modules) {
@@ -99,7 +105,8 @@ export class ChangeTrackingService implements IChangeTrackingService {
 
       // Initialize the change history client
       const client = new ChangeHistoryClient({ module, dataset, logger, kibanaVersion });
-      client.initialize(elasticsearchClient);
+      // here
+      client.initialize(es, dataStreamStart);
 
       if (!client.isInitialized()) {
         // TODO: Dont throw all the way up to the plugin.start().
