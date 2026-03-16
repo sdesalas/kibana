@@ -58,11 +58,8 @@ describe('ChangeHistoryClient', () => {
 
   describe('initialize', () => {
     const getEsDataStreams = async (name: string) => {
-      try {
-        return (await esServer.getClient().indices.getDataStream({ name }))?.data_streams ?? [];
-      } catch (error) {
-        return [];
-      }
+      const res = await esServer.getClient().indices.getDataStream({ name });
+      return res?.data_streams?.map((s) => s.name) ?? [];
     };
 
     it('should set isInitialized to true after initialize and getHistory does not throw', async () => {
@@ -72,7 +69,6 @@ describe('ChangeHistoryClient', () => {
         logger,
         kibanaVersion: '1.0.0',
       });
-      expect(client.dataStreamName).toBe(DATA_STREAM_NAME);
       expect(client.isInitialized()).toBe(false);
 
       expect(await getEsDataStreams(DATA_STREAM_NAME)).toHaveLength(0);
@@ -81,8 +77,7 @@ describe('ChangeHistoryClient', () => {
       expect(client.isInitialized()).toBe(true);
 
       const ds = await getEsDataStreams(DATA_STREAM_NAME);
-      expect(ds).toHaveLength(1);
-      expect(ds[0].name).toBe(DATA_STREAM_NAME);
+      expect(ds).toEqual([DATA_STREAM_NAME]);
 
       const result = await client.getHistory(KIBANA_SPACE, 'rule', 'any-id');
       expect(result.total).toBe(0);
@@ -175,9 +170,9 @@ describe('ChangeHistoryClient', () => {
 
     it('should log multiple changes and return them via getHistory with correct count and ordering', async () => {
       const changes: ObjectChange[] = [
-        { objectType: 'rule', objectId: 'id-a', after: { name: 'Rule A' }, sequence: '1' },
-        { objectType: 'rule', objectId: 'id-b', after: { name: 'Rule B' }, sequence: '1' },
-        { objectType: 'rule', objectId: 'id-a', after: { name: 'Rule A updated' }, sequence: '2' },
+        { objectType: 'rule', objectId: 'id-a', after: { name: 'Rule A' }, sequence: 1 },
+        { objectType: 'rule', objectId: 'id-b', after: { name: 'Rule B' }, sequence: 1 },
+        { objectType: 'rule', objectId: 'id-a', after: { name: 'Rule A updated' }, sequence: 2 },
       ];
       await client.logBulk(changes, { ...defaultLogOpts, spaceId: 'default' });
 
@@ -197,6 +192,9 @@ describe('ChangeHistoryClient', () => {
         name: 'Rule B',
       });
     });
+
+    // TODO: Add test for some documents failing and not others
+    // TODO: Add test for checking kibana spaces (underneath the hood)
   });
 
   describe('before/after diff', () => {

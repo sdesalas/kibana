@@ -22,8 +22,7 @@ describe('#standardDiffDocCalculation', () => {
     });
 
     it('should return empty diff when both objects are empty', () => {
-      const obj = {};
-      const result = standardDiffDocCalculation({ a: obj, b: structuredClone(obj) });
+      const result = standardDiffDocCalculation({ a: {}, b: {} });
 
       expect(result).toEqual({
         stats: { total: 0, additions: 0, deletions: 0, updates: 0 },
@@ -750,7 +749,7 @@ describe('#maskSensitiveFields', () => {
       const snapshot = { user: { email: 'bob@example.com' } };
       const result = maskSensitiveFields(snapshot);
 
-      expect(result.masked).toEqual([]);
+      expect(result.fields).toEqual([]);
       expect(result.snapshot).toEqual(snapshot);
     });
   });
@@ -760,7 +759,7 @@ describe('#maskSensitiveFields', () => {
       const snapshot = { secret: 'sensitive' };
       const result = maskSensitiveFields(snapshot, undefined);
 
-      expect(result.masked).toEqual([]);
+      expect(result.fields).toEqual([]);
       expect(result.snapshot).toEqual(snapshot);
     });
   });
@@ -771,7 +770,7 @@ describe('#maskSensitiveFields', () => {
       const maskFields = { user: true };
       const result = maskSensitiveFields(snapshot, maskFields);
 
-      expect(result.masked).toEqual(['user.email']);
+      expect(result.fields).toEqual(['user.email']);
       expect(result.snapshot.user.email).toMatch(maskedValuePattern);
       expect(result.snapshot.user.email).not.toBe('bob@example.com');
     });
@@ -781,7 +780,7 @@ describe('#maskSensitiveFields', () => {
       const maskFields = { user: { email: true } };
       const result = maskSensitiveFields(snapshot, maskFields);
 
-      expect(result.masked).toEqual(['user.email']);
+      expect(result.fields).toEqual(['user.email']);
       expect(result.snapshot.user.email).toMatch(maskedValuePattern);
       expect(result.snapshot.user.name).toBe('Bob');
     });
@@ -796,7 +795,7 @@ describe('#maskSensitiveFields', () => {
       const maskFields = { user: true, token: true };
       const result = maskSensitiveFields(snapshot, maskFields);
 
-      expect(result.masked.sort()).toEqual(['token', 'user.apiKey', 'user.email'].sort());
+      expect(result.fields.sort()).toEqual(['token', 'user.apiKey', 'user.email'].sort());
       expect(result.snapshot.user.email).toMatch(maskedValuePattern);
       expect(result.snapshot.user.apiKey).toMatch(maskedValuePattern);
       expect(result.snapshot.token).toMatch(maskedValuePattern);
@@ -809,7 +808,7 @@ describe('#maskSensitiveFields', () => {
       const maskFields = { config: true };
       const result = maskSensitiveFields(snapshot, maskFields);
 
-      expect(result.masked).toEqual([]);
+      expect(result.fields).toEqual([]);
       expect(result.snapshot).toEqual(snapshot);
     });
 
@@ -820,7 +819,7 @@ describe('#maskSensitiveFields', () => {
       const maskFields = { user: true };
       const result = maskSensitiveFields(snapshot, maskFields);
 
-      expect(result.masked).toEqual(['user.email']);
+      expect(result.fields).toEqual(['user.email']);
       expect(result.snapshot.user.email).toMatch(maskedValuePattern);
       expect(result.snapshot.user.count).toBe(5);
       expect(result.snapshot.user.active).toBe(true);
@@ -866,7 +865,7 @@ describe('#maskSensitiveFields', () => {
     it('should handle empty snapshot', () => {
       const result = maskSensitiveFields({}, { user: true });
 
-      expect(result.masked).toEqual([]);
+      expect(result.fields).toEqual([]);
       expect(result.snapshot).toEqual({});
     });
 
@@ -875,7 +874,7 @@ describe('#maskSensitiveFields', () => {
       const maskFields = { secret: true };
       const result = maskSensitiveFields(snapshot, maskFields);
 
-      expect(result.masked).toEqual(['secret']);
+      expect(result.fields).toEqual(['secret']);
       expect(result.snapshot.secret).toMatch(maskedValuePattern);
     });
 

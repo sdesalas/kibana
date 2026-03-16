@@ -12,9 +12,10 @@ import type {
   SortCombinations,
 } from '@elastic/elasticsearch/lib/api/types';
 import type { ElasticsearchClient } from '@kbn/core/server';
-import { type DataStreamDefinition, DataStreamClient } from '@kbn/data-streams';
+import type { DataStreamClient, DataStreamDefinition } from '@kbn/data-streams';
 import type { ClientCreateRequest } from '@kbn/data-streams/src/types/es_api';
 import type { Logger } from '@kbn/logging';
+import type { DataStreamsSetup, DataStreamsStart } from '@kbn/core-data-streams-server';
 import { changeHistoryMappings } from './mappings';
 import type {
   ChangeHistoryDocument,
@@ -27,17 +28,21 @@ import { sha256, standardDiffDocCalculation, maskSensitiveFields } from './utils
 
 const ulid = monotonicFactory();
 
+export const DATA_STREAM_NAME = '.kibana-change-history';
+const START_DATE_META_PROP = 'startDates';
+const SEPARATOR_CHAR = '|';
+const ECS_VERSION = '9.3.0';
 const DEFAULT_RESULT_SIZE = 100;
 
 type ChangeHistoryDataStreamClient = DataStreamClient<
-  typeof changeHistoryMappings,
+  typeof changeHistoryMappings.v1,
   ChangeHistoryDocument
-> & { startDate: Date };
+>;
 
 export interface IChangeHistoryClient {
-  dataStreamName: string;
   isInitialized(): boolean;
-  initialize(elasticsearchClient: ElasticsearchClient): void;
+  register(dataStreamSetup: DataStreamsSetup): void;
+  initialize(dataStreamStart: DataStreamsStart, elasticsearchClient: ElasticsearchClient): void;
   log(change: ObjectChange, opts: LogChangeHistoryOptions): Promise<void>;
   logBulk(changes: ObjectChange[], opts: LogChangeHistoryOptions): Promise<void>;
   getHistory(
@@ -49,14 +54,23 @@ export interface IChangeHistoryClient {
 }
 
 export class ChangeHistoryClient implements IChangeHistoryClient {
+  static startDates = {} as Record<string, Date>;
+  static initializationQueue = [] as string[];
+
   private module: string;
   private dataset: string;
   private kibanaVersion: string;
   private logger: Logger;
   private client?: ChangeHistoryDataStreamClient;
 
-  // Data stream name is `public` to allow calling code to also access it directly.
-  public readonly dataStreamName: string;
+  /**
+   * The date when change tracking started for this module and dataset.
+   * Useful when change tracking is introduced halfway through feature lifecycle where objects
+   * will have change histories that suddenly stop at a particular date without explanation.
+   */
+  public get startDate() {
+    return ChangeHistoryClient.startDates[`${this.module}${SEPARATOR_CHAR}${this.dataset}`];
+  }
 
   constructor({
     module,
@@ -73,7 +87,6 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
     this.dataset = dataset;
     this.kibanaVersion = kibanaVersion;
     this.logger = logger;
-    this.dataStreamName = `.kibana-change-history-${module}-${dataset}`;
   }
 
   /**
@@ -81,59 +94,131 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
    * @returns true if the change tracking service is initialized.
    */
   isInitialized() {
-    return !!this.client;
+    return !!this.client && !!Object.keys(ChangeHistoryClient.startDates).length;
   }
-
   /**
-   * Initialize the change tracking service.
-   * @param elasticsearchClient - The Elasticsearch client.
-   * @returns A promise that resolves when the change tracking service is initialized.
-   * @throws An error if the data stream is not initialized properly.
+   * Register the service during plugin `setup()` phase using
+   * the core service.
+   * @param dataStreamSetup The core data streams service `core.dataStreams`
    */
-  async initialize(elasticsearchClient: ElasticsearchClient) {
-    // Step 1: Create data stream definition
+  register(dataStreamSetup: DataStreamsSetup) {
+    const { module, dataset } = this;
+
+    // Register data stream definition
     // TODO: What about ILM policy (defaults to none = keep forever)
-    const mappings = { ...changeHistoryMappings };
-    const now = new Date();
-    const dataStream: DataStreamDefinition<typeof mappings> = {
-      name: this.dataStreamName,
+    const definition: DataStreamDefinition<typeof changeHistoryMappings.v1> = {
+      name: DATA_STREAM_NAME,
       version: 1,
       hidden: true,
       template: {
-        _meta: { changeHistoryStartDate: now.toISOString() },
         priority: 100,
-        mappings,
+        mappings: changeHistoryMappings.v1,
       },
     };
+    // Note `register()` gets called many times but we only need to initialize the data stream once.
+    if (!ChangeHistoryClient.initializationQueue.length) {
+      dataStreamSetup.registerDataStream(definition);
+    }
+    ChangeHistoryClient.initializationQueue.push(`${module}${SEPARATOR_CHAR}${dataset}`);
+  }
 
-    // Step 2: Initialize data stream
-    const client = (await DataStreamClient.initialize({
-      dataStream,
-      elasticsearchClient,
-      logger: this.logger,
-      lazyCreation: false,
-    })) as ChangeHistoryDataStreamClient;
-
-    if (!client) {
-      const err = new Error(`Data stream not initialized: [${this.dataStreamName}]`);
+  /**
+   * Initialize the change tracking service during plugin `start()` phase.
+   * @param dataStreamStart - The core datastreams service `core.dataStreams`
+   * @param elasticsearchClient - The privileged elasticsearch client `core.elasticsearch.client.asInternalUser`. Used for tracking the date when change histories started.
+   * @returns A promise that resolves when the change tracking service is initialized.
+   * @throws An error if the data stream is not initialized properly.
+   */
+  async initialize(dataStreamStart: DataStreamsStart, elasticsearchClient: ElasticsearchClient) {
+    // Step 1: Initialize data stream
+    try {
+      this.client = (await dataStreamStart.initializeClient<
+        typeof changeHistoryMappings.v1,
+        ChangeHistoryDocument
+      >(DATA_STREAM_NAME)) as ChangeHistoryDataStreamClient;
+    } catch (error) {
+      const err = new Error(`Data stream not initialized: [${DATA_STREAM_NAME}]`);
       this.logger.error(err);
       throw err;
     }
 
-    // Step 3: Get date history started
-    try {
-      const {
-        data_streams: [{ _meta: meta }],
-      } = await elasticsearchClient.indices.getDataStream({
-        name: this.dataStreamName,
-      });
-      client.startDate = meta?.changeHistoryStartDate;
-    } catch (err) {
-      this.logger.warn('Unable to get change history start date');
-    }
+    // Get all the items in the initialization queue
+    const features = ChangeHistoryClient.initializationQueue.splice(0);
+    // If there are no features left. This has been initialized somewhere else so skip next step.
+    if (!features.length) return;
 
-    // Step 4: Stash the client for later use
-    this.client = client;
+    // Step 2: Initialize the "start date" when change tracking began for this feature.
+    ChangeHistoryClient.startDates = await this.initializeStartDates(features, elasticsearchClient);
+  }
+
+  /**
+   * Gets a list of change tracking dates from the ES index template, sets any to today if not initialized.
+   * @param features A list of features to get change tracking start dates for
+   * @param elasticsearchClient The ES client. To make queries to elasticsearch.
+   * @returns A map of dates for each feature stored in the data steam index template.
+   */
+  private async initializeStartDates(
+    features: string[],
+    elasticsearchClient: ElasticsearchClient
+  ): Promise<Record<string, Date>> {
+    const result = {} as Record<string, Date>;
+    try {
+      const now = new Date();
+      const {
+        data_streams: [{ template: templateName }],
+      } = await elasticsearchClient.indices.getDataStream(
+        { name: DATA_STREAM_NAME },
+        { maxRetries: 3 }
+      );
+      if (templateName) {
+        // Check existing start dates stored on index template for this data stream
+        const {
+          index_templates: [{ index_template: template }],
+        } = await elasticsearchClient.indices.getIndexTemplate(
+          { name: templateName },
+          { maxRetries: 3 }
+        );
+        if (template) {
+          const meta = template._meta ?? {};
+          const originalStartDates = (meta[START_DATE_META_PROP] =
+            meta[START_DATE_META_PROP] || {});
+          for (const feature of features) {
+            const startDate = new Date(originalStartDates[feature]);
+            result[feature] = startDate.getTime() ? startDate : now;
+          }
+          // Any changes? If so update the index template.
+          // So the metadata reflects actual start dates for all the features
+          // stored in the data stream.
+          const serialize = JSON.stringify;
+          if (serialize(result) !== serialize(originalStartDates)) {
+            const _meta = {
+              ...template._meta,
+              [START_DATE_META_PROP]: result,
+            };
+            // Clean up
+            delete template.created_date;
+            delete template.created_date_millis;
+            delete template.modified_date;
+            delete template.modified_date_millis;
+            // eslint-disable-next-line @typescript-eslint/naming-convention
+            const ignore_missing_component_templates =
+              template.ignore_missing_component_templates as string[] | undefined;
+            await elasticsearchClient.indices.putIndexTemplate(
+              {
+                name: templateName,
+                ...template,
+                ignore_missing_component_templates,
+                _meta,
+              },
+              { maxRetries: 3 }
+            );
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Unable to initialize change history start dates. ${err}`);
+    }
+    return result;
   }
 
   /**
@@ -167,41 +252,63 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
    */
   async logBulk(changes: ObjectChange[], opts: LogChangeHistoryOptions) {
     const { module, dataset, client, kibanaVersion } = this;
+
     if (!client) {
-      const err = new Error(`Data stream not initialized: [${this.dataStreamName}]`);
+      const err = new Error(`Data stream not initialized: [${DATA_STREAM_NAME}]`);
       this.logger.error(err);
       throw err;
     }
-    const { username, userProfileId, spaceId: space, correlationId, refresh } = opts;
-    const request: ClientCreateRequest<ChangeHistoryDocument> = { documents: [], space, refresh };
+    const { username, userProfileId, spaceId, correlationId, refresh } = opts;
+    const request: ClientCreateRequest<ChangeHistoryDocument> = {
+      refresh,
+      documents: [],
+    };
 
     for (const change of changes) {
       // Create document and populate
       const { id, objectType, objectId, index, timestamp, sequence } = change;
       const hash = sha256(JSON.stringify(change.after));
-      const document = this.createDocument(id, timestamp, opts.data);
-      document.user = { name: username, id: userProfileId };
-      document.event = { ...document.event, module, dataset, action: opts.action };
+      const masked = maskSensitiveFields(change.after, opts.maskFields);
+      const fields = { masked: masked.fields, changed: undefined as string[] | undefined };
+      const { event, metadata, tags } = opts.data ?? {};
+      const document: ChangeHistoryDocument = {
+        '@timestamp': new Date(timestamp || Date.now()).toISOString(),
+        ecs: { version: ECS_VERSION },
+        user: { name: username, id: userProfileId },
+        event: {
+          id: id || ulid(), // <-- ULIDs make 'same millisecond' event order deterministic (helps with integration tests)
+          type: event?.type ?? 'change',
+          reason: event?.reason,
+          module,
+          dataset,
+          action: opts.action,
+        },
+        object: {
+          id: objectId,
+          type: objectType,
+          index,
+          hash,
+          sequence,
+          fields,
+          snapshot: masked.snapshot,
+        },
+        tags,
+        metadata,
+        kibana: { space_id: spaceId, version: kibanaVersion },
+      };
       if (correlationId && !document.event.group) document.event.group = { id: correlationId };
-
-      const fields = {} as { changed?: string[]; masked?: string[] };
-      const { masked, snapshot } = maskSensitiveFields(change.after, opts.maskFields);
-      fields.masked = masked;
-      document.object = { id: objectId, type: objectType, index, hash, sequence, fields, snapshot };
-      document.kibana = { space_id: space, version: kibanaVersion };
-
       // Do we have "before" state?
       // Perform diff using diffDocCalculation(), defaulted to standard if not passed in.
       if (change.before) {
         const diffCalc = opts.diffDocCalculation ?? standardDiffDocCalculation;
         try {
-          const a = maskSensitiveFields(change.before, opts.maskFields);
+          const maskedBefore = maskSensitiveFields(change.before, opts.maskFields);
           const { fieldChanges, oldvalues } = diffCalc({
-            a: a.snapshot,
-            b: snapshot,
+            a: maskedBefore.snapshot,
+            b: masked.snapshot,
             ignoreFields: opts.ignoreFields,
           });
-          fields.masked = Array.from(new Set([...a.masked, ...fields.masked]));
+          fields.masked = Array.from(new Set([...maskedBefore.fields, ...masked.fields]));
           fields.changed = fieldChanges;
           document.object = { ...document.object, oldvalues };
         } catch (err) {
@@ -244,9 +351,12 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
   ): Promise<GetHistoryResult> {
     const client = this.client;
     if (!client) {
-      throw new Error(`Data stream not initialized: [${this.dataStreamName}]`);
+      throw new Error(`Data stream not initialized: [${DATA_STREAM_NAME}]`);
     }
     const filter: QueryDslQueryContainer[] = [
+      { term: { 'kibana.space_id': spaceId } },
+      { term: { 'event.module': this.module } },
+      { term: { 'event.dataset': this.dataset } },
       { term: { 'object.type': objectType } },
       { term: { 'object.id': objectId } },
     ];
@@ -266,28 +376,9 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
       from: opts?.from,
     });
     return {
-      startDate: client.startDate,
+      startDate: this.startDate,
       total: Number((history.hits.total as SearchTotalHits)?.value) || 0,
       items: history.hits.hits.map((h) => h._source).filter((i) => !!i),
     };
-  }
-
-  private createDocument(
-    eventId?: string,
-    timestamp?: string,
-    data?: Partial<ChangeHistoryDocument>
-  ): ChangeHistoryDocument {
-    const { event, metadata, tags } = data ?? {};
-    return {
-      '@timestamp': new Date(timestamp || Date.now()).toISOString(),
-      event: {
-        id: eventId || ulid(), // <-- ULIDs make 'same millisecond' event order deterministic (helps with integration tests)
-        type: event?.type ?? 'change',
-        outcome: event?.outcome ?? 'success',
-        reason: event?.reason,
-      },
-      tags,
-      metadata,
-    } as ChangeHistoryDocument;
   }
 }
