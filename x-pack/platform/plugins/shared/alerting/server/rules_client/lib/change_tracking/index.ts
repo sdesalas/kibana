@@ -85,6 +85,9 @@ export class ChangeTrackingService implements IChangeTrackingService {
   register(module: RuleTypeSolution) {
     if (!this.modules.includes(module)) {
       this.modules.push(module);
+      const { dataset, logger, kibanaVersion } = this;
+      const client = new ChangeHistoryClient({ module, dataset, logger, kibanaVersion });
+      this.clients[module] = client;
     }
   }
 
@@ -94,13 +97,10 @@ export class ChangeTrackingService implements IChangeTrackingService {
 
   async initialize(elasticsearchClient: ElasticsearchClient) {
     this.logger.warn(`ChangeTrackingService.initialize(esClient)`);
-    const { dataset, logger, kibanaVersion } = this;
     for (const module of this.modules) {
-      if (this.clients[module]) continue;
-
       // Initialize the change history client
-      const client = new ChangeHistoryClient({ module, dataset, logger, kibanaVersion });
-      client.initialize(elasticsearchClient);
+      const client = this.clients[module];
+      await client.initialize(elasticsearchClient);
 
       if (!client.isInitialized()) {
         // TODO: Dont throw all the way up to the plugin.start().

@@ -557,8 +557,8 @@ export class AlertingPlugin {
           // There are many alert types but they all belong to a specific solution
           // (security, stack, observability) which in turn determines the business
           // domain. We register the desire for each business domain to track historical
-          // changes separately. Then we initialize one data stream per domain during
-          // plugin start() phase (once esClient.asInternalUser becomes available).
+          // changes separately. Then we initialize during plugin start() phase
+          // (once esClient.asInternalUser becomes available).
           if (ruleType.trackChanges) {
             const module = ruleType.solution;
             this.changeTrackingService.register(module);
@@ -642,9 +642,7 @@ export class AlertingPlugin {
     });
 
     // This is where we initialize the change tracking service using
-    // the priviledged elasticsearch client (one data stream per business domain)
-    // In reality, only security rules have "opted-in" to change tracking
-    // via a feature flag so only this data stream will get created.
+    // the priviledged elasticsearch client.
     changeTrackingService.initialize(core.elasticsearch.client.asInternalUser);
     rulesClientFactory.initialize({
       ruleTypeRegistry: ruleTypeRegistry!,
