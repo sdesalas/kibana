@@ -86,6 +86,7 @@ dependsOn:
   - '@kbn/core-saved-objects-server-mocks'
   - '@kbn/scout'
   - '@kbn/change-history'
+  - '@kbn/encrypted-saved-objects-shared'
 tags:
   - plugin
   - prod
