@@ -160,10 +160,7 @@ const ChangeHistoryTableComponent: React.FC<ChangeHistoryTableProps> = ({ ruleId
           `}
           size="s"
         >
-          <p>
-            {`On ${moment(data?.startDate).format(DATE_DISPLAY_FORMAT)} `}
-            {`Rule history tracking started`}
-          </p>
+          <p>{`Rule history tracking started`}</p>
         </EuiText>
       </EuiTimelineItem>
     );

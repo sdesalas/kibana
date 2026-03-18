@@ -75,7 +75,6 @@ export async function getHistoryForRule(
     }
     const history = await context.changeTrackingService.getHistory(module, spaceId, ruleId, opts);
     const result = {
-      startDate: history.startDate,
       total: history.total,
       items: history.items.map(mapHistoryItem(context)),
     };

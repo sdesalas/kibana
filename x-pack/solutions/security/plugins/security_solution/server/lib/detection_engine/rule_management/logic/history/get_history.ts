@@ -42,7 +42,6 @@ export const getRuleHistory = async ({
     sort: { '@timestamp': 'desc' },
   });
   return {
-    startDate: history.startDate,
     total: history.total,
     items: history.items.map(mapHistoryItem),
   };
@@ -58,13 +57,13 @@ const mapHistoryItem = (item: RuleChangeHistoryDocument): RuleHistoryResult => {
     ruleId: rule.id,
     username: user?.name,
     revision: rule.revision as number | undefined,
-    previousRevision: object.oldvalues?.['attributes.revision'] as number | undefined,
+    previousRevision: object.diff?.before?.['attributes.revision'] as number | undefined,
     version: rule.version as number | undefined,
     action: event.action,
-    changes: object.fields.changed ?? [],
+    changes: object.diff?.fields ?? [],
     snapshot: object.snapshot,
     rule,
-    oldvalues: object.oldvalues,
+    oldvalues: object.diff?.before,
     metadata,
   };
 };

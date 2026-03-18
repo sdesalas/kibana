@@ -9,7 +9,7 @@
  * Acts like a feature flag for this package as it prevents initialization.
  * Remove this after General Availability
  * */
-export const FEATURE_ENABLED = false;
+export const FEATURE_ENABLED = true;
 /**
  * Name of the datastream in elasticsearch
  */
