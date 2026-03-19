@@ -17,7 +17,7 @@ import type { ClientCreateRequest } from '@kbn/data-streams/src/types/es_api';
 import type { Logger } from '@kbn/logging';
 import { changeHistoryMappings } from './mappings';
 import {
-  FEATURE_ENABLED,
+  FLAGS,
   DATA_STREAM_NAME,
   SEPARATOR_CHAR,
   ECS_VERSION,
@@ -101,7 +101,7 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
    * @throws An error if the data stream is not initialized properly.
    */
   async initialize(elasticsearchClient: ElasticsearchClient) {
-    if (!FEATURE_ENABLED) {
+    if (!FLAGS.FEATURE_ENABLED) {
       const error = new Error(`Change history is disabled. Skipping initialization.`);
       this.logger.error(error);
       throw error;
@@ -155,13 +155,11 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
    * @param opts.username - Current login name for the user who performed the change.
    * @param opts.userProfileId - Optional user profile ID (auth realm). See Elastic User Profiles.
    * @param opts.spaceId - The ID of the space that the change belongs to.
-   * @param opts.timestamp - Optional timestamp of the change.
    * @param opts.correlationId - Optional correlation ID for the bulk change.
    * @param opts.data - Optional data to merge into the change history document.
    * @param opts.ignoreFields - Optional fields to ignore in the diff calculation.
    * @param opts.maskFields - Optional "sensitive data" fields to mask instead of store in plain form.
-   * @param opts.diffDocCalculation - Optional function to calculate the diff between the current and next state of the object.
-   * @param opts.refresh - Optional indicator to force an ES refresh after changes (affects perfomance)
+   * @param opts.refresh - Optional indicator to force an ES refresh after changes (affects performance)
    * @returns A promise that resolves when the bulk change is logged.
    * @throws An error if the data stream is not initialized, or if an error occurs while logging the change.
    */
@@ -267,7 +265,6 @@ export class ChangeHistoryClient implements IChangeHistoryClient {
    * @param opts.sort - The sort order for the history query.
    * @param opts.from - The starting index for the history query.
    * @param opts.size - The number of results to return.
-   * @param opts.transportOpts - Additional ES transport options
    * @returns The history of the object.
    * @throws An error if the data stream is not initialized, or if an error occurs while getting the history.
    */
