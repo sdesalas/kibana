@@ -76,6 +76,21 @@ export const validateRules = (
   });
 };
 
+export type ImportItemKind = 'exception' | 'connector' | 'export_details' | 'rule';
+
+export const classifyImportItem = (importItem: unknown): ImportItemKind => {
+  if (importItem != null && typeof importItem === 'object' && has('exported_count', importItem)) {
+    return 'export_details';
+  }
+  if (has('list_id', importItem) || has('item_id', importItem) || has('entries', importItem)) {
+    return 'exception';
+  }
+  if (has('attributes', importItem)) {
+    return 'connector';
+  }
+  return 'rule';
+};
+
 /**
  * Sorts the exceptions into the lists and items.
  * We do this because we don't want the order of the exceptions
@@ -89,14 +104,17 @@ export const sortImports = (): Transform => {
     actionConnectors: SavedObject[];
   }>(
     (acc, importItem) => {
-      if (has('list_id', importItem) || has('item_id', importItem) || has('entries', importItem)) {
+      const kind = classifyImportItem(importItem);
+      if (kind === 'exception') {
         return { ...acc, exceptions: [...acc.exceptions, importItem] };
       }
-      if (has('attributes', importItem)) {
+      if (kind === 'connector') {
         return { ...acc, actionConnectors: [...acc.actionConnectors, importItem] };
-      } else {
-        return { ...acc, rules: [...acc.rules, importItem] };
       }
+      if (kind === 'export_details') {
+        return acc;
+      }
+      return { ...acc, rules: [...acc.rules, importItem] };
     },
     {
       exceptions: [],
@@ -106,34 +124,41 @@ export const sortImports = (): Transform => {
   );
 };
 
-export const migrateLegacyInvestigationFields = (): Transform => {
-  return createMapStream<RuleToImportInput | RulesObjectsExportResultDetails>((obj) => {
-    if (obj != null && 'investigation_fields' in obj && Array.isArray(obj.investigation_fields)) {
-      if (obj.investigation_fields.length) {
+export const migrateInvestigationFieldsValue = <T>(obj: T): T => {
+  if (obj != null && typeof obj === 'object' && 'investigation_fields' in obj) {
+    const fields = (obj as { investigation_fields?: unknown }).investigation_fields;
+    if (Array.isArray(fields)) {
+      if (fields.length) {
         return {
           ...obj,
           investigation_fields: {
-            field_names: obj.investigation_fields,
+            field_names: fields,
           },
         };
-      } else {
-        const { investigation_fields: _, ...rest } = obj;
-        return rest;
       }
+      const { investigation_fields: _, ...rest } = obj as T & { investigation_fields: unknown };
+      return rest as T;
     }
-    return obj;
-  });
+  }
+  return obj;
+};
+
+export const stripOriginIdValue = <T>(obj: T): T => {
+  if (obj != null && typeof obj === 'object' && 'originId' in obj) {
+    const { originId: _, ...rest } = obj as T & { originId: unknown };
+    return rest as T;
+  }
+  return obj;
+};
+
+export const migrateLegacyInvestigationFields = (): Transform => {
+  return createMapStream<RuleToImportInput | RulesObjectsExportResultDetails>((obj) =>
+    migrateInvestigationFieldsValue(obj)
+  );
 };
 
 export const stripActionConnectorOriginIds = (): Transform => {
-  return createMapStream((obj) => {
-    if (obj != null && typeof obj === 'object' && 'originId' in obj) {
-      const { originId, ...rest } = obj;
-      return rest;
-    } else {
-      return obj;
-    }
-  });
+  return createMapStream((obj) => stripOriginIdValue(obj));
 };
 
 // TODO: Capture both the line number and the rule_id if you have that information for the error message

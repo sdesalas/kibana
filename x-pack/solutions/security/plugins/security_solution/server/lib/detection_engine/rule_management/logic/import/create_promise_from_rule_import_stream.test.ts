@@ -410,4 +410,31 @@ describe('createPromiseFromRuleImportStream', () => {
       },
     ]);
   });
+
+  test('keeps exceptions and connectors out of the rules array', async () => {
+    const sample1 = getOutputSample();
+    const exception = { list_id: 'list-1', type: 'detection', name: 'list' };
+    const connector = { id: 'connector-1', type: 'action', attributes: { name: 'email' } };
+    const ndJsonStream = new Readable({
+      read() {
+        this.push(getSampleAsNdjson(sample1));
+        this.push(`${JSON.stringify(exception)}\n`);
+        this.push(`${JSON.stringify(connector)}\n`);
+        this.push(null);
+      },
+    });
+
+    const [{ rules, exceptions, actionConnectors }] = await createPromiseFromRuleImportStream({
+      stream: ndJsonStream,
+      objectLimit: 1000,
+    });
+
+    expect(rules).toEqual([
+      expect.objectContaining({
+        rule_id: 'rule-1',
+      }),
+    ]);
+    expect(exceptions).toEqual([exception]);
+    expect(actionConnectors).toEqual([connector]);
+  });
 });
