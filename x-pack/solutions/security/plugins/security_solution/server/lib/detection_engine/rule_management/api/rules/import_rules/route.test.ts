@@ -19,7 +19,8 @@ import { createPrebuiltRuleAssetsClient } from '../../../../prebuilt_rules/logic
 import { ensureLatestRulesPackageInstalled } from '../../../../prebuilt_rules/logic/integrations/ensure_latest_rules_package_installed';
 import { importRuleActionConnectors } from '../../../logic/import/action_connectors/import_rule_action_connectors';
 import { validateRuleActions } from '../../../logic/import/action_connectors/validate_rule_actions';
-import { createPromiseFromRuleImportStream } from '../../../logic/import/create_promise_from_rule_import_stream';
+import { classifyRuleImportStream } from '../../../logic/import/classify_rule_import_stream';
+import { inflateRuleImportBatches } from '../../../logic/import/inflate_rule_import_batches';
 import { importRuleExceptions } from '../../../logic/import/import_rule_exceptions';
 import { createRuleImportErrorObject } from '../../../logic/detection_rules_client/methods/import_rules/errors';
 import {
@@ -37,13 +38,13 @@ jest.mock('../../../../prebuilt_rules/logic/rule_assets/prebuilt_rule_assets_cli
 jest.mock('../../../../prebuilt_rules/logic/integrations/ensure_latest_rules_package_installed');
 jest.mock('../../../logic/import/action_connectors/import_rule_action_connectors');
 jest.mock('../../../logic/import/action_connectors/validate_rule_actions');
-jest.mock('../../../logic/import/create_promise_from_rule_import_stream');
+jest.mock('../../../logic/import/classify_rule_import_stream');
+jest.mock('../../../logic/import/inflate_rule_import_batches');
 jest.mock('../../../logic/import/import_rule_exceptions');
 jest.mock('../../../utils/utils');
 
-const stream = createPromiseFromRuleImportStream as jest.MockedFunction<
-  typeof createPromiseFromRuleImportStream
->;
+const classify = classifyRuleImportStream as jest.MockedFunction<typeof classifyRuleImportStream>;
+const inflate = inflateRuleImportBatches as jest.MockedFunction<typeof inflateRuleImportBatches>;
 const exceptions = importRuleExceptions as jest.MockedFunction<typeof importRuleExceptions>;
 const connectors = importRuleActionConnectors as jest.MockedFunction<
   typeof importRuleActionConnectors
@@ -89,7 +90,18 @@ describe('Import rules route', () => {
 
     context.securitySolution.getEndpointService.mockReturnValue({} as never);
 
-    stream.mockResolvedValue([{ exceptions: [], rules: [rule], actionConnectors: [] }]);
+    classify.mockResolvedValue({
+      exceptions: [],
+      actionConnectors: [],
+      parseErrors: [],
+      rulesZstd: Buffer.alloc(0),
+      ruleCount: 1,
+      lastRuleIndexById: new Map([[rule.rule_id, 0]]),
+      extraRuleIds: [],
+    });
+    inflate.mockImplementation(async function* () {
+      yield { items: [rule], startIndex: 0 };
+    });
     exceptions.mockResolvedValue(emptyExceptions);
     connectors.mockResolvedValue(emptyConnectors);
     dedupe.mockReturnValue([[], [rule]]);
@@ -127,7 +139,7 @@ describe('Import rules route', () => {
   });
 
   it('returns 500 when a collaborator throws', async () => {
-    stream.mockRejectedValue(new Error('parse failed'));
+    classify.mockRejectedValue(new Error('parse failed'));
 
     const response = await inject();
 
@@ -171,9 +183,15 @@ describe('Import rules route', () => {
   });
 
   it('sets allowMissingConnectorSecrets when connectors were in the file', async () => {
-    stream.mockResolvedValue([
-      { exceptions: [], rules: [rule], actionConnectors: [{ id: 'connector-1' } as never] },
-    ]);
+    classify.mockResolvedValue({
+      exceptions: [],
+      actionConnectors: [{ id: 'connector-1' } as never],
+      parseErrors: [],
+      rulesZstd: Buffer.alloc(0),
+      ruleCount: 1,
+      lastRuleIndexById: new Map(),
+      extraRuleIds: [],
+    });
 
     await inject();
 
@@ -230,8 +248,29 @@ describe('Import rules route', () => {
     const rules = Array.from({ length: total }, (_, i) =>
       getImportRulesSchemaMock({ rule_id: `rule-${i}` })
     );
-    actions.mockResolvedValue({ validatedActionRules: rules, missingActionErrors: [] });
-    responseActions.mockResolvedValue({ valid: rules, errors: [] });
+    classify.mockResolvedValue({
+      exceptions: [],
+      actionConnectors: [],
+      parseErrors: [],
+      rulesZstd: Buffer.alloc(0),
+      ruleCount: total,
+      lastRuleIndexById: new Map(rules.map((item, i) => [item.rule_id, i])),
+      extraRuleIds: [],
+    });
+    inflate.mockImplementation(async function* () {
+      yield { items: rules.slice(0, RULE_IMPORT_BATCH_SIZE), startIndex: 0 };
+      yield { items: rules.slice(RULE_IMPORT_BATCH_SIZE), startIndex: RULE_IMPORT_BATCH_SIZE };
+    });
+    dedupe.mockImplementation((batch) => [[], batch]);
+    migrate.mockImplementation(async (batch) => batch);
+    actions.mockImplementation(async ({ rules: batch }) => ({
+      validatedActionRules: batch,
+      missingActionErrors: [],
+    }));
+    responseActions.mockImplementation(async ({ rulesToImport }) => ({
+      valid: rulesToImport,
+      errors: [],
+    }));
     clients.detectionRulesClient.importRules.mockResolvedValue({
       successes: [],
       errors: [],

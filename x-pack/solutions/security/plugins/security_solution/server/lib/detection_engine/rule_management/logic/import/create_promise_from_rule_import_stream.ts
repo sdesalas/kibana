@@ -6,14 +6,17 @@
  */
 
 import type { Readable } from 'stream';
-import { createPromiseFromStreams } from '@kbn/utils';
 import type { SavedObject } from '@kbn/core/server';
 import type {
   ImportExceptionsListSchema,
   ImportExceptionListItemSchema,
 } from '@kbn/securitysolution-io-ts-list-types';
 
-import { createRulesAndExceptionsStreamFromNdJson } from './create_rules_stream_from_ndjson';
+import {
+  classifyRuleImportStream,
+  mergeIndexedErrors,
+} from './classify_rule_import_stream';
+import { inflateRuleImportBatches } from './inflate_rule_import_batches';
 import type { RuleFromImportStream } from './utils';
 
 export interface RuleImportStreamResult {
@@ -26,14 +29,28 @@ export interface RuleImportStreamResult {
  * Utility for generating a promise from a Readable stream corresponding to an
  * NDJSON file. Used during rule import.
  */
-export const createPromiseFromRuleImportStream = ({
+export const createPromiseFromRuleImportStream = async ({
   objectLimit,
   stream,
 }: {
   objectLimit: number;
   stream: Readable;
 }): Promise<RuleImportStreamResult[]> => {
-  const readAllStream = createRulesAndExceptionsStreamFromNdJson(objectLimit);
+  const classified = await classifyRuleImportStream({ objectLimit, stream });
+  const inflated: RuleFromImportStream[] = [];
 
-  return createPromiseFromStreams<RuleImportStreamResult[]>([stream, ...readAllStream]);
+  for await (const { items } of inflateRuleImportBatches(
+    classified.rulesZstd,
+    Number.MAX_SAFE_INTEGER
+  )) {
+    inflated.push(...items);
+  }
+
+  return [
+    {
+      exceptions: classified.exceptions,
+      actionConnectors: classified.actionConnectors,
+      rules: mergeIndexedErrors(inflated, classified.parseErrors),
+    },
+  ];
 };

@@ -8,7 +8,7 @@
 import { schema } from '@kbn/config-schema';
 import type { IKibanaResponse, Logger } from '@kbn/core/server';
 import { transformError } from '@kbn/securitysolution-es-utils';
-import { chunk, partition } from 'lodash/fp';
+import { partition } from 'lodash/fp';
 import { extname } from 'path';
 import { buildRouteValidationWithZod } from '@kbn/zod-helpers/v4';
 import { RULES_API_ALL } from '@kbn/security-solution-features/constants';
@@ -21,6 +21,7 @@ import { DETECTION_ENGINE_RULES_IMPORT_URL } from '../../../../../../../common/c
 import type { ConfigType } from '../../../../../../config';
 import type { HapiReadableStream, SecuritySolutionPluginRouter } from '../../../../../../types';
 import { buildSiemResponse, createBulkErrorObject } from '../../../../routes/utils';
+import type { BulkError } from '../../../../routes/utils';
 import { createPrebuiltRuleAssetsClient } from '../../../../prebuilt_rules/logic/rule_assets/prebuilt_rule_assets_client';
 import { importRuleActionConnectors } from '../../../logic/import/action_connectors/import_rule_action_connectors';
 import { validateRuleActions } from '../../../logic/import/action_connectors/validate_rule_actions';
@@ -29,7 +30,8 @@ import type {
   ImportRuleSuccess,
 } from '../../../logic/detection_rules_client/detection_rules_client_interface';
 
-import { createPromiseFromRuleImportStream } from '../../../logic/import/create_promise_from_rule_import_stream';
+import { classifyRuleImportStream } from '../../../logic/import/classify_rule_import_stream';
+import { inflateRuleImportBatches } from '../../../logic/import/inflate_rule_import_batches';
 import { importRuleExceptions } from '../../../logic/import/import_rule_exceptions';
 import { isRuleToImport } from '../../../logic/import/utils';
 import {
@@ -121,10 +123,15 @@ export const importRulesRoute = (
 
           const objectLimit = config.maxRuleImportExportSize;
 
-          // parse file to separate out exceptions from rules
-          const [{ exceptions, rules, actionConnectors }] = await createPromiseFromRuleImportStream(
-            { stream: file, objectLimit }
-          );
+          const {
+            exceptions,
+            actionConnectors,
+            parseErrors: streamParseErrors,
+            rulesZstd,
+            ruleCount,
+            lastRuleIndexById,
+            extraRuleIds,
+          } = await classifyRuleImportStream({ stream: file, objectLimit });
 
           // import exceptions, includes validation
           const {
@@ -137,11 +144,6 @@ export const importRulesRoute = (
             overwrite: request.query.overwrite_exceptions,
             maxExceptionsImportSize: objectLimit,
           });
-          // report on duplicate rules
-          const [duplicateIdErrors, rulesToImportOrErrors] = getTupleDuplicateErrorsAndUniqueRules(
-            rules,
-            request.query.overwrite
-          );
 
           // import actions-connectors
           const {
@@ -155,12 +157,6 @@ export const importRulesRoute = (
             overwrite: request.query.overwrite_action_connectors,
           });
 
-          const migratedRulesToImportOrErrors = await migrateLegacyActionsIds(
-            rulesToImportOrErrors,
-            actionSOClient,
-            actionsClient
-          );
-
           // Ensure the prebuilt rules package is installed once per request so
           // the import path can look up prebuilt assets during rule_source calc.
           await ensureLatestRulesPackageInstalled(
@@ -169,22 +165,71 @@ export const importRulesRoute = (
             logger
           );
 
-          const [parsedRules, parsedRuleErrors] = partition(
-            isRuleToImport,
-            migratedRulesToImportOrErrors
+          const successes: ImportRuleSuccess[] = [];
+          const importErrors: ImportRuleError[] = [];
+          const parseErrors: BulkError[] = streamParseErrors.map(({ error }) =>
+            createBulkErrorObject({
+              statusCode: 400,
+              message: error.message,
+            })
           );
+          const duplicateIdErrors: BulkError[] = request.query.overwrite
+            ? []
+            : extraRuleIds.map((ruleId) =>
+                createBulkErrorObject({
+                  ruleId,
+                  statusCode: 400,
+                  message: `More than one rule with rule-id: "${ruleId}" found`,
+                })
+              );
+          const missingActionErrors: BulkError[] = [];
+          const responseActionsErrors: BulkError[] = [];
+          const bulkCount = lastRuleIndexById.size;
 
-          // After importing the actions and migrating action IDs on rules to import,
-          // validate that all actions referenced by rules exist
-          // Filter out rules that reference non-existent actions
-          const { validatedActionRules, missingActionErrors } = await validateRuleActions({
-            actionsClient,
-            rules: parsedRules,
-          });
+          for await (const { items, startIndex } of inflateRuleImportBatches(
+            rulesZstd,
+            RULE_IMPORT_BATCH_SIZE
+          )) {
+            const lastWins = items.filter((item, i) => {
+              if (!isRuleToImport(item) || item.rule_id == null) {
+                return true;
+              }
+              const last = lastRuleIndexById.get(item.rule_id);
+              return last === undefined || last === startIndex + i;
+            });
 
-          // Validate that Response Actions are valid
-          const { valid: validatedResponseActionsRules, errors: responseActionsErrors } =
-            await validateRuleImportResponseActions({
+            const [batchDuplicateErrors, rulesToImportOrErrors] =
+              getTupleDuplicateErrorsAndUniqueRules(lastWins, request.query.overwrite);
+            duplicateIdErrors.push(...batchDuplicateErrors);
+
+            const migratedRulesToImportOrErrors = await migrateLegacyActionsIds(
+              rulesToImportOrErrors,
+              actionSOClient,
+              actionsClient
+            );
+
+            const [parsedRules, parsedRuleErrors] = partition(
+              isRuleToImport,
+              migratedRulesToImportOrErrors
+            );
+
+            parseErrors.push(
+              ...parsedRuleErrors.map((error) =>
+                createBulkErrorObject({
+                  statusCode: 400,
+                  message: error.message,
+                })
+              )
+            );
+
+            const { validatedActionRules, missingActionErrors: batchMissing } =
+              await validateRuleActions({
+                actionsClient,
+                rules: parsedRules,
+              });
+            missingActionErrors.push(...batchMissing);
+
+            const { valid, errors: batchResponseActions } = await validateRuleImportResponseActions({
               endpointAuthz,
               endpointService,
               spaceId,
@@ -192,14 +237,14 @@ export const importRulesRoute = (
               checkOsqueryResponseActionAuthz:
                 ctx.securitySolution.getCheckOsqueryResponseActionAuthz(),
             });
+            responseActionsErrors.push(...batchResponseActions);
 
-          const successes: ImportRuleSuccess[] = [];
-          const importErrors: ImportRuleError[] = [];
-          const bulkCount = validatedResponseActionsRules.length;
+            if (valid.length === 0) {
+              continue;
+            }
 
-          for (const batch of chunk(RULE_IMPORT_BATCH_SIZE, validatedResponseActionsRules)) {
             const result = await detectionRulesClient.importRules({
-              rules: batch,
+              rules: valid,
               changeTracking: {
                 action: SecurityRuleChangeTrackingAction.ruleImport,
                 metadata: { bulkCount },
@@ -212,12 +257,6 @@ export const importRulesRoute = (
             importErrors.push(...result.errors);
           }
 
-          const parseErrors = parsedRuleErrors.map((error) =>
-            createBulkErrorObject({
-              statusCode: 400,
-              message: error.message,
-            })
-          );
           const errors = [
             ...parseErrors,
             ...duplicateIdErrors,
@@ -229,7 +268,7 @@ export const importRulesRoute = (
           const importRulesResponse: ImportRulesResponse = {
             success: errors.length === 0,
             success_count: successes.length,
-            rules_count: rules.length,
+            rules_count: ruleCount,
             errors,
             exceptions_errors: exceptionsErrors,
             exceptions_success: exceptionsSuccess,
